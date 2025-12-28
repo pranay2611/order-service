@@ -1,0 +1,28 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: order-service
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/orderdb}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+services:
+  user-service:
+    url: ${SERVICES_USER_SERVICE_URL:http://localhost:8081}
+  payment-service:
+    url: ${SERVICES_PAYMENT_SERVICE_URL:http://localhost:8083}
+  notification-service:
+    url: ${SERVICES_NOTIFICATION_SERVICE_URL:http://localhost:8084}
+
