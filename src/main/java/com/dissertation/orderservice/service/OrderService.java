@@ -61,6 +61,7 @@ public class OrderService {
         try {
             order.setStatus(OrderStatus.PAYMENT_PROCESSING);
             orderRepository.save(order);
+            log.info("Processing payment for order: {}, amount: {}", order.getOrderNumber(), totalAmount);
             
             PaymentRequest paymentRequest = PaymentRequest.builder()
                     .orderNumber(order.getOrderNumber())
@@ -68,25 +69,48 @@ public class OrderService {
                     .amount(totalAmount)
                     .build();
             
-            PaymentResponse paymentResponse = paymentServiceClient.processPayment(paymentRequest);
+            PaymentResponse paymentResponse = null;
+            try {
+                paymentResponse = paymentServiceClient.processPayment(paymentRequest);
+                log.info("Payment service response received: status={}, paymentId={}", 
+                        paymentResponse != null ? paymentResponse.getStatus() : "null",
+                        paymentResponse != null ? paymentResponse.getPaymentId() : "null");
+            } catch (Exception feignException) {
+                log.error("Feign client exception when calling payment service: {}", feignException.getMessage(), feignException);
+                throw new RuntimeException("Payment service call failed: " + feignException.getMessage(), feignException);
+            }
+            
+            if (paymentResponse == null) {
+                log.error("Payment response is null");
+                order.setStatus(OrderStatus.PAYMENT_FAILED);
+                orderRepository.save(order);
+                throw new RuntimeException("Payment service returned null response");
+            }
             
             if ("COMPLETED".equals(paymentResponse.getStatus())) {
                 order.setStatus(OrderStatus.PAYMENT_COMPLETED);
                 order.setPaymentId(paymentResponse.getPaymentId());
                 order = orderRepository.save(order);
+                log.info("Payment completed successfully for order: {}", order.getOrderNumber());
                 
                 // Send notification
                 sendOrderNotification(user, order, "Order Created Successfully");
             } else {
+                log.warn("Payment processing failed. Status: {}, Order: {}", paymentResponse.getStatus(), order.getOrderNumber());
                 order.setStatus(OrderStatus.PAYMENT_FAILED);
                 orderRepository.save(order);
-                throw new RuntimeException("Payment processing failed");
+                throw new RuntimeException("Payment processing failed with status: " + paymentResponse.getStatus());
             }
-        } catch (Exception e) {
-            log.error("Payment processing failed: {}", e.getMessage());
+        } catch (RuntimeException e) {
+            log.error("Payment processing failed with RuntimeException: {}", e.getMessage(), e);
             order.setStatus(OrderStatus.PAYMENT_FAILED);
             orderRepository.save(order);
-            throw new RuntimeException("Order creation failed: " + e.getMessage());
+            throw e; // Re-throw to preserve the original exception
+        } catch (Exception e) {
+            log.error("Payment processing failed with unexpected exception: {}", e.getMessage(), e);
+            order.setStatus(OrderStatus.PAYMENT_FAILED);
+            orderRepository.save(order);
+            throw new RuntimeException("Order creation failed: " + e.getMessage(), e);
         }
         
         return mapToResponse(order);
